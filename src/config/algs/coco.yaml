@@ -1,0 +1,62 @@
+# --- COCO specific parameters ---
+
+# use epsilon greedy action selector
+action_selector: "epsilon_greedy"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 50000
+
+# runner: "parallel"
+
+buffer_size: 5000
+
+# update the target network every {} episodes
+target_update_interval: 200
+consensus_builder_embedding_dim: 4
+
+# use the Q_Learner to train
+agent_output_type: "q"
+learner: "coco_learner"
+
+double_q: True
+mixer: "qmix"
+mixing_embed_dim: 64
+hypernet_layers: 2
+hypernet_embed: 32
+
+
+consensus_builder_hidden_dim: 64
+consensus_builder_dim: 4
+
+tau: 0.996
+center_tau: 0.9
+online_temp: 0.1
+target_temp: 0.04
+input: "obs" # "obs" or "hidden"
+
+use_comm: True
+comm_reduce: True
+attn_based_intergration: True
+personal_msg_dim: 8
+mi_loss_weight: 0.02
+nn_hidden_size: 64
+latent_dim: 4
+var_floor: 0.001
+use_kl: False
+attention_dim: 32
+integrated_msg_dim: 2
+kl_weight: 0.04
+msg_loss_weight: 0.02
+comm_gate: 15
+msg_gate: 4
+comm_gamma: 0.9
+alpha_cos: False
+gate_val: False
+
+is_comm_entropy_beta_decay: False
+comm_entropy_beta_start_decay: 0
+comm_entropy_beta_target: 0.001
+comm_entropy_beta_end_decay: 1000000
+comm_entropy_beta: 0.0005
+
+name: "coco"

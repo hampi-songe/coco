@@ -1,0 +1,16 @@
+env: PredatorPrey
+
+test_nepisode: 160
+test_interval: 50000
+log_interval: 10000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 5000000
+
+
+render_args:
+  draw_sight_range: True
+  mode: 'rgb_array'
+  srk: [1,2,4]
+  sr_color: ["#2CAFAC","#FB5607", "#1982C4"]
+

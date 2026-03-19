@@ -1,0 +1,92 @@
+{
+  "artifacts": [],
+  "command": "my_main",
+  "experiment": {
+    "base_dir": "F:\\shy\\COCO3\\src",
+    "dependencies": [
+      "munch==2.5.0",
+      "numpy==1.23.1",
+      "PyYAML==6.0",
+      "sacred==0.8.2",
+      "torch==1.11.0+cu113"
+    ],
+    "mainfile": "main.py",
+    "name": "pymarl",
+    "repositories": [],
+    "sources": [
+      [
+        "main.py",
+        "_sources\\main_19e4ee37759670547ffe983bd6a8176d.py"
+      ],
+      [
+        "run.py",
+        "_sources\\run_b3b2d0bf2b4942877ee0ee625d9e53a2.py"
+      ],
+      [
+        "utils\\logging.py",
+        "_sources\\logging_38e7c3c11a8722f1c40f9bab14330d30.py"
+      ]
+    ]
+  },
+  "fail_trace": [
+    "Traceback (most recent call last):\n",
+    "  File \"D:\\Anaconda\\envs\\pytorch-ljl\\lib\\site-packages\\sacred\\config\\captured_function.py\", line 42, in captured_function\n    result = wrapped(*args, **kwargs)\n",
+    "  File \"F:\\shy\\COCO3\\src\\main.py\", line 40, in my_main\n    run(_run, config, _log)\n",
+    "  File \"F:\\shy\\COCO3\\src\\run.py\", line 63, in run\n    os._exit(os.EX_OK)\n",
+    "AttributeError: module 'os' has no attribute 'EX_OK'\n"
+  ],
+  "heartbeat": "2025-10-20T11:16:17.678318",
+  "host": {
+    "ENV": {},
+    "cpu": "Unknown",
+    "gpus": {
+      "driver_version": "565.90",
+      "gpus": [
+        {
+          "model": "NVIDIA GeForce RTX 4090 D",
+          "persistence_mode": false,
+          "total_memory": 24564
+        }
+      ]
+    },
+    "hostname": "DESKTOP-BVM1CLN",
+    "os": [
+      "Windows",
+      "Windows-10-10.0.22631-SP0"
+    ],
+    "python_version": "3.9.12"
+  },
+  "meta": {
+    "command": "my_main",
+    "options": {
+      "--beat-interval": null,
+      "--capture": null,
+      "--comment": null,
+      "--debug": false,
+      "--enforce_clean": false,
+      "--file_storage": null,
+      "--force": false,
+      "--help": false,
+      "--loglevel": null,
+      "--mongo_db": null,
+      "--name": null,
+      "--pdb": false,
+      "--print-config": false,
+      "--priority": null,
+      "--queue": false,
+      "--s3": null,
+      "--sql": null,
+      "--tiny_db": null,
+      "--unobserved": false,
+      "COMMAND": null,
+      "UPDATE": [],
+      "help": false,
+      "with": false
+    }
+  },
+  "resources": [],
+  "result": null,
+  "start_time": "2025-10-19T12:36:27.523264",
+  "status": "FAILED",
+  "stop_time": "2025-10-20T11:16:17.734719"
+}
