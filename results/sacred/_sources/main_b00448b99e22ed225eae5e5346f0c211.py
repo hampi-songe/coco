@@ -33,6 +33,7 @@ def my_main(_run, _config, _log):
     # run the framework
     run(_run, config, _log)
 
+
 def _get_config(params, arg_name, subfolder):
     config_name = None
     for _i, _v in enumerate(params):
