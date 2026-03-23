@@ -35,7 +35,7 @@ target_temp: 0.04
 input: "obs" # "obs" or "hidden"
 
 use_comm: True
-comm_reduce: True
+comm_reduce: False
 attn_based_intergration: True
 personal_msg_dim: 8
 mi_loss_weight: 0.02

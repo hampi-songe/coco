@@ -549,6 +549,8 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from matplotlib.cm import get_cmap
 import math
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # 生成随机的数据作为示例
 n_agents = 3
@@ -560,11 +562,11 @@ data = msg.transpose(1,0)
 reshaped_data = np.reshape(data, (n_agents * max_step, msg_dim))
 
 # 进行 t-SNE 降维
-tsne = TSNE(n_components=2, early_exaggeration=30, perplexity=10, learning_rate=20)
+tsne = TSNE(n_components=2, early_exaggeration=30, perplexity=10, learning_rate=20, init='pca')
 embedded_data = tsne.fit_transform(reshaped_data)
 
 # 创建颜色映射，每个智能体一个
-colormaps = [get_cmap(name) for name in ['greens', 'reds', 'blues']]
+colormaps = [get_cmap(name) for name in ['Blues', 'Reds', 'Greens']]
              # ['Greens', 'hot_r', 'gray']]
 
 # 可视化结果
@@ -589,15 +591,14 @@ plt.ylabel('t-SNE Dimension 2', fontdict={'family' : 'Times New Roman', 'size'  
 # plt.title('t-SNE Visualization with Time Variation')
 plt.xticks([])
 plt.yticks([])
-# plt.show()
+plt.show()
 
-angles = np.arctan2(embedded_data[:, 1], embedded_data[:, 0])
+# angles = np.arctan2(embedded_data[:, 1], embedded_data[:, 0])
 
-# 设置固定半径
-radius = np.full_like(angles, 50)
+# # 设置固定半径
+# radius = np.full_like(angles, 50)
 
-# 转换为笛卡尔坐标
-x = radius * np.cos(angles)
-y = radius * np.sin(angles)
-
+# # 转换为笛卡尔坐标
+# x = radius * np.cos(angles)
+# y = radius * np.sin(angles)
 # plt.show()

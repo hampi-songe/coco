@@ -151,7 +151,8 @@ class RNNAgent(nn.Module):
 
         if test_mode:
             if self.args.comm_reduce:
-               _, sorted_alpha = torch.topk(self.alpha, k=self.args.comm_gate, dim=-1, largest=False)
+               k = min(self.args.comm_gate, self.n_agents)
+               _, sorted_alpha = torch.topk(self.alpha, k=k, dim=-1, largest=False)
                #print('sorted_alpha',sorted_alpha.shape)
                expanded_sorted_alpha = sorted_alpha.unsqueeze(-1).repeat(1, 1, 1, self.args.msg_gate)
                #print('expanded_sorted_alpha', expanded_sorted_alpha.shape)

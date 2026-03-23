@@ -87,8 +87,8 @@ if __name__ == '__main__':
             assert False, "default.yaml error: {}".format(exc)
 
     # Load algorithm and env base configs
-    # params.append("--env-config=sc2")
-    # params.append("--config=coco")
+    params.append("--env-config=sc2")
+    params.append("--config=coco")
     comment = _get_comment(params, '--comment')
     env_config = _get_config(params, "--env-config", "envs")
     alg_config = _get_config(params, "--config", "algs")
