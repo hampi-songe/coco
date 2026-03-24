@@ -1,11 +1,13 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+from matplotlib.figure import Figure
+from matplotlib import rcParams
+from matplotlib.font_manager import FontProperties
 import numpy as np
-import matplotlib.pyplot as plt
+import json
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from sklearn.manifold import TSNE
 from matplotlib.cm import get_cmap
-import json
 import os
 import torch
 import warnings
@@ -13,7 +15,13 @@ import subprocess
 import threading
 import sys
 import random
+import re
 import time
+import queue
+
+# --- Matplotlib 字体设置 (解决中文显示问题) ---
+rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
+rcParams['axes.unicode_minus'] = False
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -26,6 +34,10 @@ SECONDARY_ACCENT = "#6366f1" # 紫蓝色
 TEXT_PRIMARY = "#0f172a"     # 深色文字
 TEXT_DIM = "#64748b"         # 灰度文字
 SHADOW_COLOR = "#ffffff"     # 浅灰色阴影
+PREFERRED_FONT_FILES = [
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+]
 
 class TechBackground(tk.Canvas):
     """动态科技感背景 + 真正半透明卡片容器"""
@@ -115,6 +127,21 @@ class AutonomousGamingUI:
         self.is_running = False
         self.current_timestep = 0
         self.max_timesteps = 2050000
+        self.sacred_run_id = None
+        self.unique_token = None
+
+        self.tsne_busy = False
+        self.tsne_requested_step = None
+        self.tsne_cache = None
+        self.tsne_cache_step = None
+        self.log_queue = queue.Queue()
+        self.log_flush_scheduled = False
+        self.experiment_start_time = None
+        self.chart_font = None
+        for font_path in PREFERRED_FONT_FILES:
+            if os.path.exists(font_path):
+                self.chart_font = FontProperties(fname=font_path)
+                break
         
         # 字体
         self.font_title = ("Microsoft YaHei", 24, "bold")
@@ -139,76 +166,100 @@ class AutonomousGamingUI:
         self.bg_canvas = TechBackground(self.root)
         self.bg_canvas.pack(fill=tk.BOTH, expand=True)
 
-        PAD = 20; LEFT_W = 380; HEADER_H = 80
+        # 2. 布局常量
+        PAD = 20
+        LEFT_W = 380
+        HEADER_H = 80
+        MIDDLE_H = 550 # 中间配置和图表区的高度
+        LOG_H = 220    # 底部日志区的高度
+        FULL_W = 1450 - 2 * PAD
 
-        # --- 顶部标题 ---
-        self.bg_canvas.add_card_shape(PAD, PAD, 1450-2*PAD, HEADER_H, r=15)
+        # --- 顶部标题栏 ---
+        self.bg_canvas.add_card_shape(PAD, PAD, FULL_W, HEADER_H, r=15)
         self.bg_canvas.add_canvas_text(1450/2, PAD + HEADER_H/2, "自主博弈操作系统 (COCO Platform)", self.font_title, ACCENT_COLOR, anchor="center")
 
-        # --- 左侧控制面板 ---
-        LEFT_Y = PAD + HEADER_H + PAD
-        self.bg_canvas.add_card_shape(PAD, LEFT_Y, LEFT_W, 950-LEFT_Y-PAD-40)
+        # --- 中间区域 (Y = 120) ---
+        MIDDLE_Y = PAD + HEADER_H + PAD
         
-        # 使用 create_text 绘制所有静态标签
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+20, "⚙️ 系统配置", self.font_sec, "#334155")
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+60, "博弈平台", self.font_main, "#1e293b")
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+130, "实验场景", self.font_main, "#1e293b")
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+350, "训练算法", self.font_main, "#1e293b")
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+480, "📊 实时监控", self.font_sec, "#334155")
-        self.bg_canvas.add_canvas_text(PAD+20, LEFT_Y+630, "控制台输出", self.font_main, "#1e293b")
+        # 1. 左侧控制面板
+        self.bg_canvas.add_card_shape(PAD, MIDDLE_Y, LEFT_W, MIDDLE_H)
+        self.bg_canvas.add_canvas_text(PAD+20, MIDDLE_Y+20, "⚙️ 系统配置", self.font_sec, "#334155")
+        self.bg_canvas.add_canvas_text(PAD+20, MIDDLE_Y+60, "博弈平台", self.font_main, "#1e293b")
+        self.bg_canvas.add_canvas_text(PAD+20, MIDDLE_Y+130, "实验场景", self.font_main, "#1e293b")
+        self.bg_canvas.add_canvas_text(PAD+20, MIDDLE_Y+330, "训练算法", self.font_main, "#1e293b")
+        self.bg_canvas.add_canvas_text(PAD+20, MIDDLE_Y+430, "📊 实时监控", self.font_sec, "#334155")
 
-        # 放置交互式组件 (Combobox, Button, Text, Progress)
+        # 放置左侧交互组件
         self.platform_var = tk.StringVar(value=self.platforms[0])
         platform_cb = ttk.Combobox(self.root, textvariable=self.platform_var, values=self.platforms, state="readonly")
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+85, window=platform_cb, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+85, window=platform_cb, anchor="nw", width=LEFT_W-40)
 
         self.map_var = tk.StringVar(value=list(self.maps.keys())[0]); self.map_var.trace("w", self.on_map_change)
         map_cb = ttk.Combobox(self.root, textvariable=self.map_var, values=list(self.maps.keys()), state="readonly")
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+155, window=map_cb, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+155, window=map_cb, anchor="nw", width=LEFT_W-40)
 
-        self.map_desc_text = tk.Text(self.root, height=5, font=self.font_main, bg="#f1f5f9", fg=TEXT_DIM, relief=tk.FLAT, padx=10, pady=10)
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+200, window=self.map_desc_text, anchor="nw", width=LEFT_W-40, height=120)
+        self.map_desc_text = tk.Text(self.root, height=4, font=self.font_main, bg="#f1f5f9", fg=TEXT_DIM, relief=tk.FLAT, padx=10, pady=10)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+200, window=self.map_desc_text, anchor="nw", width=LEFT_W-40, height=110)
         self.update_map_desc()
 
         self.algo_var = tk.StringVar(value=self.algorithms[0])
         algo_cb = ttk.Combobox(self.root, textvariable=self.algo_var, values=self.algorithms, state="readonly")
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+375, window=algo_cb, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+355, window=algo_cb, anchor="nw", width=LEFT_W-40)
 
         self.run_btn = tk.Button(self.root, text="▶ 开始运行实验", font=self.font_bold, bg=ACCENT_COLOR, fg="white", activebackground=ACCENT_GLOW, relief=tk.FLAT, pady=10, command=self.toggle_experiment)
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+420, window=self.run_btn, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+465, window=self.run_btn, anchor="nw", width=LEFT_W-40)
 
         self.timestep_label_var = tk.StringVar(value="当前步数: 0 / 2,050,000")
         ts_label = tk.Label(self.root, textvariable=self.timestep_label_var, font=self.font_bold, fg=ACCENT_COLOR, bg="#f1f5f9")
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+520, window=ts_label, anchor="nw")
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+515, window=ts_label, anchor="nw")
 
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=2050000)
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+560, window=self.progress_bar, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+545, window=self.progress_bar, anchor="nw", width=LEFT_W-40)
 
-        self.log_area = scrolledtext.ScrolledText(self.root, height=10, font=self.font_mono, bg="#f1f5f9", fg="#1e293b", relief=tk.FLAT)
-        self.bg_canvas.create_window(PAD+20, LEFT_Y+660, window=self.log_area, anchor="nw", width=LEFT_W-40, height=180)
-
-        # --- 右侧内容 ---
-        RIGHT_X = PAD + LEFT_W + PAD; CURVE_H = 400
-        self.bg_canvas.add_card_shape(RIGHT_X, LEFT_Y, 1450-RIGHT_X-PAD, CURVE_H)
-        self.bg_canvas.add_canvas_text(RIGHT_X+20, LEFT_Y+15, "📈 实验结果曲线 (Win Rate)", self.font_main, ACCENT_COLOR)
+        # 2. 右侧图表区 (双正方形并排)
+        RIGHT_X = PAD + LEFT_W + PAD
+        SQUARE_SIZE = 495 # 保持图表正方形
         
-        self.fig_curve, self.ax_curve = plt.subplots(figsize=(8, 3.5), dpi=100)
-        self.fig_curve.patch.set_facecolor("none") # 设置透明背景
-        self.ax_curve.set_facecolor("#f1f5f9")
-        self.canvas_curve = FigureCanvasTkAgg(self.fig_curve, master=self.root)
-        self.bg_canvas.create_window(RIGHT_X+20, LEFT_Y+50, window=self.canvas_curve.get_tk_widget(), anchor="nw", width=1450-RIGHT_X-PAD-40, height=CURVE_H-70)
-
-        TSNE_Y = LEFT_Y + CURVE_H + PAD
-        self.bg_canvas.add_card_shape(RIGHT_X, TSNE_Y, 1450-RIGHT_X-PAD, 950-TSNE_Y-PAD-40)
-        self.bg_canvas.add_canvas_text(RIGHT_X+20, TSNE_Y+15, "🔮 消息空间可视化 (t-SNE)", self.font_main, ACCENT_COLOR)
+        # 胜率曲线
+        self.bg_canvas.add_card_shape(RIGHT_X, MIDDLE_Y, SQUARE_SIZE, SQUARE_SIZE)
+        self.bg_canvas.add_canvas_text(RIGHT_X+20, MIDDLE_Y+15, "📈 实验结果曲线 (Win Rate)", self.font_main, ACCENT_COLOR)
         
-        self.fig_tsne, self.ax_tsne = plt.subplots(figsize=(6, 6), dpi=100)
-        self.fig_tsne.patch.set_facecolor("none")
-        self.ax_tsne.set_facecolor("#f1f5f9")
-        self.canvas_tsne = FigureCanvasTkAgg(self.fig_tsne, master=self.root)
-        self.bg_canvas.create_window(RIGHT_X+20, TSNE_Y+50, window=self.canvas_tsne.get_tk_widget(), anchor="nw", width=1450-RIGHT_X-PAD-40, height=950-TSNE_Y-PAD-110)
+        # 使用 Figure 替代 plt.subplots
+        self.fig_curve = Figure(figsize=(5, 5), dpi=100)
+        self.fig_curve.patch.set_facecolor("#ffffff") # 先用白色，确保可见
+        self.ax_curve = self.fig_curve.add_subplot(111)
+        self.ax_curve.set_facecolor("#f8fafc")
+        
+        self.canvas_curve = FigureCanvasTkAgg(self.fig_curve, master=self.bg_canvas) # master 设为 canvas
+        self.curve_widget = self.canvas_curve.get_tk_widget()
+        self.curve_widget.config(bg="white") # 确保 widget 背景不透明
+        self.bg_canvas.create_window(RIGHT_X+20, MIDDLE_Y+50, window=self.curve_widget, anchor="nw", width=SQUARE_SIZE-40, height=SQUARE_SIZE-70)
 
+        # t-SNE 可视化
+        TSNE_X = RIGHT_X + SQUARE_SIZE + PAD
+        self.bg_canvas.add_card_shape(TSNE_X, MIDDLE_Y, SQUARE_SIZE, SQUARE_SIZE)
+        self.bg_canvas.add_canvas_text(TSNE_X+20, MIDDLE_Y+15, "🔮 消息空间可视化 (t-SNE)", self.font_main, ACCENT_COLOR)
+        
+        self.fig_tsne = Figure(figsize=(5, 5), dpi=100)
+        self.fig_tsne.patch.set_facecolor("#ffffff")
+        self.ax_tsne = self.fig_tsne.add_subplot(111)
+        self.ax_tsne.set_facecolor("#f8fafc")
+        
+        self.canvas_tsne = FigureCanvasTkAgg(self.fig_tsne, master=self.bg_canvas)
+        self.tsne_widget = self.canvas_tsne.get_tk_widget()
+        self.tsne_widget.config(bg="white")
+        self.bg_canvas.create_window(TSNE_X+20, MIDDLE_Y+50, window=self.tsne_widget, anchor="nw", width=SQUARE_SIZE-40, height=SQUARE_SIZE-70)
+
+        # --- 底部日志区域 (Y = 120 + 550 + 20 = 690) ---
+        LOG_Y = MIDDLE_Y + MIDDLE_H + PAD
+        self.bg_canvas.add_card_shape(PAD, LOG_Y, FULL_W, LOG_H)
+        self.bg_canvas.add_canvas_text(PAD+20, LOG_Y+15, "📜 控制台日志输出", self.font_sec, "#334155")
+        
+        self.log_area = scrolledtext.ScrolledText(self.root, height=8, font=self.font_mono, bg="#f1f5f9", fg="#1e293b", relief=tk.FLAT)
+        self.bg_canvas.create_window(PAD+20, LOG_Y+50, window=self.log_area, anchor="nw", width=FULL_W-40, height=LOG_H-70)
+
+        # 底部状态栏
         self.status_bar = tk.Label(self.root, text="系统就绪 | 正在监控 SMAC 平台...", bd=0, anchor=tk.W, bg="#e2e8f0", fg=TEXT_DIM, font=("Microsoft YaHei", 9), padx=20, pady=5)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -216,7 +267,112 @@ class AutonomousGamingUI:
         self.update_map_desc(); self.load_data(); self.update_plots()
 
     def update_plots(self):
-        self.plot_curve(); self.plot_tsne()
+        self.plot_curve()
+        self.plot_tsne()
+
+    def _normalize_timestep(self, t):
+        return 0 if t <= 100 else t
+
+    def _normalize_timeline(self, steps):
+        return [self._normalize_timestep(int(v)) for v in steps]
+
+    def request_tsne_update(self, target_step):
+        if self.tsne_busy:
+            self.tsne_requested_step = target_step
+            return
+
+        self.load_data()
+        msg_dir = getattr(self, "latest_msg_path", None)
+        token = getattr(self, "unique_token", None)
+        if not msg_dir:
+            return
+
+        self.tsne_busy = True
+        self.tsne_requested_step = None
+        self.plot_tsne()
+        thread = threading.Thread(target=self._compute_tsne_cache, args=(msg_dir, token, target_step), daemon=True)
+        thread.start()
+
+    def _compute_tsne_cache(self, msg_dir, token, target_step):
+        try:
+            best_path = None
+            best_ts = None
+            deadline = time.time() + 6.0
+            while time.time() < deadline:
+                try:
+                    msg_files = [f for f in os.listdir(msg_dir) if f.endswith(".pt")]
+                except Exception:
+                    msg_files = []
+                if msg_files:
+                    ts_files = sorted([int(f.replace(".pt", "")) for f in msg_files if f.replace(".pt", "").isdigit()])
+                    if ts_files:
+                        target = int(target_step)
+                        tolerance = 120 if target <= 200 else max(300, min(2000, int(target * 0.08)))
+                        candidates = [ts for ts in ts_files if abs(ts - target) <= tolerance]
+                        if candidates:
+                            best_ts = min(candidates, key=lambda ts: abs(ts - target))
+                            best_path = os.path.join(msg_dir, f"{best_ts}.pt")
+                            if os.path.exists(best_path):
+                                break
+                time.sleep(0.2)
+
+            if not best_path or not os.path.exists(best_path):
+                self.root.after(0, self._finish_tsne_update, None, None)
+                return
+
+            msgs = torch.load(best_path, map_location="cpu")
+            if not hasattr(msgs, "shape") or len(msgs.shape) != 4:
+                self.root.after(0, self._finish_tsne_update, None, None)
+                return
+
+            steps, n_agents, _, msg_dim = msgs.shape
+            data = msgs.mean(dim=2).permute(1, 0, 2).numpy()
+            n_agents, max_step, msg_dim = data.shape
+            reshaped_data = np.reshape(data.transpose(1, 0, 2), (n_agents * max_step, msg_dim))
+
+            max_points = 1600
+            if reshaped_data.shape[0] > max_points:
+                idx = np.linspace(0, reshaped_data.shape[0] - 1, num=max_points).astype(int)
+                reshaped_data_use = reshaped_data[idx]
+                agent_idx = idx // max_step
+                t_idx = idx % max_step
+            else:
+                reshaped_data_use = reshaped_data
+                agent_idx = np.arange(reshaped_data.shape[0]) // max_step
+                t_idx = np.arange(reshaped_data.shape[0]) % max_step
+
+            perp = min(30, max(5, (reshaped_data_use.shape[0] - 1) // 5))
+            tsne = TSNE(
+                n_components=2,
+                early_exaggeration=12,
+                perplexity=min(perp, reshaped_data_use.shape[0] - 1),
+                init="pca",
+                random_state=42,
+            )
+            embedded = tsne.fit_transform(reshaped_data_use)
+            payload = {
+                "embedded": embedded,
+                "agent_idx": agent_idx,
+                "t_idx": t_idx,
+                "n_agents": int(n_agents),
+                "max_step": int(max_step),
+                "best_ts": int(best_ts) if best_ts is not None else None,
+                "token": token,
+            }
+            self.root.after(0, self._finish_tsne_update, payload, target_step)
+        except Exception:
+            self.root.after(0, self._finish_tsne_update, None, None)
+
+    def _finish_tsne_update(self, payload, target_step):
+        self.tsne_busy = False
+        if payload:
+            self.tsne_cache = payload
+            self.tsne_cache_step = payload.get("best_ts")
+            self.plot_tsne()
+        pending = self.tsne_requested_step
+        self.tsne_requested_step = None
+        if pending is not None:
+            self.request_tsne_update(pending)
 
     def update_map_desc(self):
         self.map_desc_text.config(state=tk.NORMAL)
@@ -228,14 +384,40 @@ class AutonomousGamingUI:
         else: self.stop_experiment()
 
     def start_experiment(self):
+        # 1. 启动前强制清空所有旧数据和状态
+        self.sacred_run_id = None
+        self.unique_token = None
+        self.data_info = {"test_battle_won_mean": [], "test_battle_won_mean_T": []} # 初始化空数据
+        self.latest_msg_path = None
+        self.current_timestep = 0
+        self.last_plot_timestep = 0
+        self.early_fired = set()
+        self.last_periodic_bucket = 0
+        self.tsne_busy = False
+        self.tsne_requested_step = None
+        self.tsne_cache = None
+        self.tsne_cache_step = None
+        self.log_queue = queue.Queue()
+        self.log_flush_scheduled = False
+        self.experiment_start_time = time.time()
+        
+        # 2. 立即重置图表显示为“等待中”
+        self.update_plots()
+        self.timestep_label_var.set("当前步数: 0 / 2,050,000")
+        self.progress_var.set(0)
+        self.log_area.delete(1.0, tk.END)
+
         map_name = self.map_var.get(); algo_name = self.algo_var.get().lower()
         python_exe = "A:/Conda/envs/smac/python.exe"; main_script = os.path.join(os.path.dirname(__file__), "main.py")
-        cmd = [python_exe, main_script, "--env-config=sc2", f"--config={algo_name}", "with", f"env_args.map_name={map_name}"]
+        # 使用 -u 开启无缓冲模式，确保日志实时传送到 UI
+        cmd = [python_exe, "-u", main_script, "--env-config=sc2", f"--config={algo_name}", "with", f"env_args.map_name={map_name}"]
         self.log_area.delete(1.0, tk.END); self.log_area.insert(tk.END, f"🚀 正在启动实验: {map_name}...\n")
         try:
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, cwd=os.path.dirname(main_script))
             self.is_running = True; self.run_btn.config(text="⏹ 停止实验", bg="#ef4444")
-            threading.Thread(target=self.read_logs, daemon=True).start(); self.monitor_progress()
+            threading.Thread(target=self.read_logs, daemon=True).start()
+            self.process_log_queue()
+            self.monitor_progress()
         except Exception as e: messagebox.showerror("启动失败", f"无法启动实验: {str(e)}")
 
     def stop_experiment(self):
@@ -246,85 +428,340 @@ class AutonomousGamingUI:
     def read_logs(self):
         while self.is_running and self.process.poll() is None:
             line = self.process.stdout.readline()
-            if line: self.root.after(0, self.update_log_area, line)
-        if self.process: self.root.after(0, self.finish_experiment)
+            if line:
+                self.log_queue.put(("line", line))
+        if self.process:
+            self.log_queue.put(("finished", None))
 
-    def update_log_area(self, line):
-        self.log_area.insert(tk.END, line); self.log_area.see(tk.END)
+    def process_log_queue(self):
+        appended_lines = []
+        curve_dirty = False
+        tsne_step = None
+        should_finish = False
+        processed = 0
+
+        while processed < 200:
+            try:
+                event_type, payload = self.log_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            processed += 1
+            if event_type == "line":
+                appended_lines.append(payload)
+                update_curve, update_tsne_step = self.update_log_area(payload, append_to_log=False)
+                curve_dirty = curve_dirty or update_curve
+                if update_tsne_step is not None:
+                    tsne_step = update_tsne_step
+            elif event_type == "finished":
+                should_finish = True
+
+        if appended_lines:
+            self.log_area.insert(tk.END, "".join(appended_lines))
+            self.log_area.see(tk.END)
+
+        if curve_dirty:
+            self.plot_curve()
+        if tsne_step is not None:
+            self.request_tsne_update(tsne_step)
+
+        if should_finish:
+            self.finish_experiment()
+            return
+
+        if self.is_running or not self.log_queue.empty():
+            self.root.after(80, self.process_log_queue)
+
+    def update_log_area(self, line, append_to_log=True):
+        if append_to_log:
+            self.log_area.insert(tk.END, line)
+            self.log_area.see(tk.END)
+        curve_dirty = False
+        tsne_step = None
+        
+        # 1. 实时解析 Unique Token (用于定位消息目录)
+        token_match = re.search(r"(?:'unique_token':\s*'([^']+)'|Unique Token:\s*([^\s]+))", line)
+        if token_match:
+            self.unique_token = token_match.group(1) or token_match.group(2)
+            print(f"--- 捕捉到 Token: {self.unique_token} ---")
+            self.load_data() # 立即定位新目录
+        
+        # 2. 实时解析 Run ID
+        run_id_match = re.search(r'(?:Run ID:|ID\s*")\s*(\d+)', line)
+        if run_id_match:
+            self.sacred_run_id = run_id_match.group(1)
+            print(f"--- 捕捉到 Run ID: {self.sacred_run_id} ---")
+        
+        # 3. 实时解析胜率 (关键！解决停止才更新的问题)
+        win_match = re.search(r"test_battle_won_mean:\s*([\d.]+)", line)
+        if win_match:
+            win_val = float(win_match.group(1))
+            if "test_battle_won_mean" not in self.data_info:
+                self.data_info["test_battle_won_mean"] = []
+                self.data_info["test_battle_won_mean_T"] = []
+            last_ts = self.data_info["test_battle_won_mean_T"][-1] if self.data_info["test_battle_won_mean_T"] else None
+            if last_ts != self.current_timestep:
+                self.data_info["test_battle_won_mean"].append(win_val)
+                self.data_info["test_battle_won_mean_T"].append(self.current_timestep)
+            print(f"--- 实时抓取胜率: {win_val} (Step: {self.current_timestep}) ---")
+            
+            # 测试结束，立即刷新胜率，并异步计算最新 episode 的 t-SNE
+            curve_dirty = True
+            tsne_step = self.current_timestep
+
+        # 4. 实时解析时间步
+        ts_match = re.search(r"t_env:\s*(\d+)", line)
+        if ts_match:
+            new_ts = int(ts_match.group(1))
+            self.current_timestep = new_ts
+            self.timestep_label_var.set(f"当前步数: {self.current_timestep:,} / 2,050,000")
+            self.progress_var.set(self.current_timestep)
+            
+            if not hasattr(self, "early_fired"):
+                self.early_fired = set()
+            if not hasattr(self, "last_periodic_bucket"):
+                self.last_periodic_bucket = 0
+
+            early_thresholds = [50, 200, 500, 1000]
+            for t in early_thresholds:
+                if self.current_timestep >= t and t not in self.early_fired:
+                    print(f"--- 到达早期阈值 {t}，触发同步加载 ---")
+                    self.early_fired.add(t)
+                    self.load_data()
+                    curve_dirty = True
+                    if t == 50:
+                        tsne_step = 50
+                    break
+
+            period = 10000
+            bucket = self.current_timestep // period
+            if self.current_timestep >= period and bucket > self.last_periodic_bucket:
+                print(f"--- 到达 {bucket*period} 步阈值，触发同步加载 ---")
+                self.last_periodic_bucket = bucket
+                self.load_data()
+                curve_dirty = True
+                tsne_step = bucket * period
+
+        return curve_dirty, tsne_step
 
     def finish_experiment(self):
         self.is_running = False; self.run_btn.config(text="▶ 开始运行实验", bg=ACCENT_COLOR)
-        self.load_data(); self.update_plots()
+        self.load_data()
+        self.plot_curve()
+        self.request_tsne_update(self.current_timestep)
 
     def monitor_progress(self):
         if not self.is_running: return
-        self.load_data(); self.timestep_label_var.set(f"当前步数: {self.current_timestep:,} / 2,050,000")
+        
+        # 1. 尝试加载最新数据
+        self.load_data()
+        
+        # 2. 更新步数标签和进度条
+        self.timestep_label_var.set(f"当前步数: {self.current_timestep:,} / 2,050,000")
         self.progress_var.set(self.current_timestep)
-        if not hasattr(self, 'last_plot_timestep'): self.last_plot_timestep = -1
-        if self.current_timestep - self.last_plot_timestep >= 10000:
-            self.update_plots(); self.last_plot_timestep = self.current_timestep
-        self.root.after(10000, self.monitor_progress)
+        
+        if not hasattr(self, "early_fired"):
+            self.early_fired = set()
+        if not hasattr(self, "last_periodic_bucket"):
+            self.last_periodic_bucket = 0
+
+        early_thresholds = [50, 200, 500, 1000]
+        for t in early_thresholds:
+            if self.current_timestep >= t and t not in self.early_fired:
+                print(f"检测到早期阈值 {t}，正在更新图表...")
+                self.early_fired.add(t)
+                self.plot_curve()
+                if t == 50:
+                    self.request_tsne_update(50)
+                break
+
+        period = 10000
+        bucket = self.current_timestep // period
+        if self.current_timestep >= period and bucket > self.last_periodic_bucket:
+            print(f"检测到 {bucket*period} 步阈值，正在更新图表...")
+            self.last_periodic_bucket = bucket
+            self.plot_curve()
+            self.request_tsne_update(bucket * period)
+        
+        # 4. 每 15 秒轮询一次，降低 IO 压力
+        self.root.after(15000, self.monitor_progress)
+
+    def _get_metric_val(self, val):
+        """处理 numpy 序列化后的字典格式数据"""
+        if isinstance(val, dict) and "value" in val:
+            return val["value"]
+        return val
 
     def load_data(self):
         try:
             results_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
+            
+            # --- 优化 Sacred 数据加载逻辑 ---
             sacred_dir = os.path.join(results_root, "sacred")
             if os.path.exists(sacred_dir):
-                runs = [d for d in os.listdir(sacred_dir) if d.isdigit()]
-                if runs:
-                    latest_run = sorted(runs, key=int)[-1]
-                    info_path = os.path.join(sacred_dir, latest_run, "info.json")
+                if self.sacred_run_id:
+                    runs = [self.sacred_run_id]
+                else:
+                    runs = sorted([d for d in os.listdir(sacred_dir) if d.isdigit()], key=int, reverse=True)
+                
+                valid_info_found = False
+                for run_id in runs:
+                    info_path = os.path.join(sacred_dir, run_id, "info.json")
                     if os.path.exists(info_path):
-                        with open(info_path, "r") as f:
-                            self.data_info = json.load(f)
-                            if "battle_won_mean_T" in self.data_info: self.current_timestep = max(self.data_info["battle_won_mean_T"])
-            msg_root = os.path.join(results_root, "messages")
-            if os.path.exists(msg_root):
-                msg_dirs = os.listdir(msg_root)
-                if msg_dirs: self.latest_msg_path = max([os.path.join(msg_root, d) for d in msg_dirs], key=os.path.getmtime)
-        except Exception as e: print(f"Error loading data: {e}")
+                        try:
+                            with open(info_path, "r") as f:
+                                data = json.load(f)
+                                # 检查多种可能的胜率键名
+                                possible_keys = ["test_battle_won_mean", "battle_won_mean", "test_return_mean", "return_mean"]
+                                loaded_length = 0
+                                current_length = len(self.data_info.get("test_battle_won_mean", [])) if isinstance(getattr(self, "data_info", None), dict) else 0
+                                for key in possible_keys:
+                                    if key in data and len(data[key]) > 0:
+                                        loaded_length = len(data[key])
+                                        if loaded_length >= current_length or not self.is_running:
+                                            self.data_info = data
+                                        valid_info_found = True
+                                        print(f"--- 成功加载数据 (Run ID: {run_id}, Key: {key}) ---")
+                                        break
+                                if valid_info_found: break
+                        except Exception as e: 
+                            print(f"解析 {info_path} 失败: {e}")
+                            continue 
+                
+                if not valid_info_found:
+                    print(f"--- 在最新的 {len(runs)} 个运行中未找到有效的 info.json 数据 ---")
+
+            # --- 优化消息数据加载逻辑 ---
+            # 检查两个可能的路径：项目根目录/results 和 src/results
+            msg_roots = [
+                os.path.join(results_root, "messages"),
+                os.path.join(os.path.dirname(results_root), "src", "results", "messages")
+            ]
+            
+            # 如果解析到了 unique_token，则精准定位该文件夹
+            found_msg_path = None
+            if hasattr(self, 'unique_token') and self.unique_token:
+                for msg_root in msg_roots:
+                    potential_path = os.path.join(msg_root, self.unique_token)
+                    if os.path.exists(potential_path):
+                        found_msg_path = potential_path; break
+            
+            # 运行中如果 token 尚未解析到，则根据启动时间兜底匹配本次实验新建的消息目录
+            if not found_msg_path and self.is_running and self.experiment_start_time is not None:
+                for msg_root in msg_roots:
+                    if os.path.exists(msg_root):
+                        msg_dirs = [os.path.join(msg_root, d) for d in os.listdir(msg_root) if os.path.isdir(os.path.join(msg_root, d))]
+                        fresh_dirs = [d for d in msg_dirs if os.path.getmtime(d) >= self.experiment_start_time - 5]
+                        if fresh_dirs:
+                            current_latest = max(fresh_dirs, key=os.path.getmtime)
+                            if found_msg_path is None or os.path.getmtime(current_latest) > os.path.getmtime(found_msg_path):
+                                found_msg_path = current_latest
+
+            # 非运行状态下允许回退到最新目录做预览
+            if not found_msg_path and not self.is_running:
+                for msg_root in msg_roots:
+                    if os.path.exists(msg_root):
+                        msg_dirs = [os.path.join(msg_root, d) for d in os.listdir(msg_root) if os.path.isdir(os.path.join(msg_root, d))]
+                        if msg_dirs:
+                            current_latest = max(msg_dirs, key=os.path.getmtime)
+                            if found_msg_path is None or os.path.getmtime(current_latest) > os.path.getmtime(found_msg_path):
+                                found_msg_path = current_latest
+            
+            self.latest_msg_path = found_msg_path
+            if self.latest_msg_path:
+                print(f"--- 确认消息路径: {self.latest_msg_path} ---")
+            else:
+                self.latest_msg_path = None
+        except Exception as e:
+            print(f"数据加载总异常: {e}")
 
     def plot_curve(self):
-        self.ax_curve.clear(); self.ax_curve.set_facecolor("#f1f5f9")
-        if hasattr(self, 'data_info') and self.data_info and "battle_won_mean" in self.data_info:
-            y = self.data_info["battle_won_mean"]; x = self.data_info.get("battle_won_mean_T", list(range(len(y))))
-            self.ax_curve.plot(x, y, color=ACCENT_COLOR, linewidth=2.5, label='COCO')
-            self.ax_curve.fill_between(x, y, color=ACCENT_COLOR, alpha=0.1)
-            self.ax_curve.legend(facecolor="white", edgecolor=SHADOW_COLOR, labelcolor="#1e293b")
-            self.ax_curve.set_xlabel("时间步", color="#475569", fontproperties="Microsoft YaHei", weight="bold")
-            self.ax_curve.set_ylabel("平均测试胜率", color="#475569", fontproperties="Microsoft YaHei", weight="bold")
+        self.ax_curve.clear()
+        self.ax_curve.set_facecolor("#f8fafc")
+        
+        plot_done = False
+        if hasattr(self, 'data_info') and self.data_info:
+            for key in ["test_battle_won_mean", "battle_won_mean"]:
+                if key in self.data_info and len(self.data_info[key]) > 0:
+                    y_raw = self.data_info[key]
+                    y = [self._get_metric_val(v) for v in y_raw]
+                    x = self._normalize_timeline(self.data_info.get(f"{key}_T", list(range(len(y)))))
+                    print(f"--- 正在绘制曲线: {len(y)} 个数据点 ---")
+                    self.ax_curve.plot(x, y, color=ACCENT_COLOR, linewidth=2.5, label='COCO', marker='o', markersize=4)
+                    self.ax_curve.fill_between(x, y, color=ACCENT_COLOR, alpha=0.1)
+                    leg = self.ax_curve.legend(facecolor="white", edgecolor=SHADOW_COLOR)
+                    for text in leg.get_texts():
+                        text.set_color("#1e293b")
+                    plot_done = True
+                    break
+            
+        if plot_done:
+            if self.chart_font:
+                self.ax_curve.set_xlabel("时间步", color="#475569", fontproperties=self.chart_font, weight="bold")
+                self.ax_curve.set_ylabel("平均测试胜率", color="#475569", fontproperties=self.chart_font, weight="bold")
+            else:
+                self.ax_curve.set_xlabel("时间步", color="#475569", fontproperties="DejaVu Sans", weight="bold")
+                self.ax_curve.set_ylabel("平均测试胜率", color="#475569", fontproperties="DejaVu Sans", weight="bold")
             self.ax_curve.grid(True, linestyle='-', alpha=0.1, color="#cbd5e1")
-            self.ax_curve.tick_params(colors="#475569", labelsize=9); self.ax_curve.set_xlim(0, 2050000); self.ax_curve.set_ylim(0, 1.1)
+            self.ax_curve.tick_params(colors="#475569", labelsize=9)
+            
+            # 动态设置 X 轴范围，防止早期数据太挤
+            current_max_x = max(x) if x else 0
+            self.ax_curve.set_xlim(0, max(current_max_x * 1.2, 100000, min(self.max_timesteps, current_max_x + 50000)))
+            self.ax_curve.set_ylim(-0.05, 1.1)
             for spine in self.ax_curve.spines.values(): spine.set_color("#e2e8f0")
-        else: self.ax_curve.text(0.5, 0.5, "等待实验数据...", color="#64748b", ha='center', fontproperties="Microsoft YaHei", weight="bold")
-        self.fig_curve.tight_layout(); self.canvas_curve.draw()
+        else: 
+            if self.chart_font:
+                self.ax_curve.text(0.5, 0.5, "等待实验数据...", color="#64748b", ha='center', fontproperties=self.chart_font, weight="bold", transform=self.ax_curve.transAxes)
+            else:
+                self.ax_curve.text(0.5, 0.5, "等待实验数据...", color="#64748b", ha='center', fontproperties="DejaVu Sans", weight="bold", transform=self.ax_curve.transAxes)
+        
+        self.fig_curve.tight_layout()
+        self.canvas_curve.draw()
+        # 强制刷新 Tkinter 窗口
+        self.canvas_curve.get_tk_widget().update_idletasks()
 
     def plot_tsne(self):
-        self.ax_tsne.clear(); self.ax_tsne.set_facecolor("#f1f5f9")
-        msgs = None
-        if hasattr(self, 'latest_msg_path') and self.latest_msg_path:
+        self.ax_tsne.clear()
+        self.ax_tsne.set_facecolor("#f8fafc")
+
+        cache = getattr(self, "tsne_cache", None)
+        if cache and "embedded" in cache:
+            embedded = cache["embedded"]
+            agent_idx = cache["agent_idx"]
+            t_idx = cache["t_idx"]
+            n_agents = int(cache["n_agents"])
+            max_step = int(cache["max_step"])
+            colormaps = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges']
             try:
-                msg_files = [f for f in os.listdir(self.latest_msg_path) if f.endswith('.pt')]
-                if msg_files:
-                    ts_files = sorted([int(f.replace('.pt', '')) for f in msg_files])
-                    best_ts = max([ts for ts in ts_files if ts <= self.current_timestep] or [ts_files[0]])
-                    msgs = torch.load(os.path.join(self.latest_msg_path, f"{best_ts}.pt"), map_location='cpu')
-            except: pass
-        if msgs is not None:
-            steps, n_agents, _, msg_dim = msgs.shape; data = msgs.mean(dim=2).permute(1, 0, 2).numpy()
-            n_agents, max_step, msg_dim = data.shape; reshaped_data = np.reshape(data.transpose(1, 0, 2), (n_agents * max_step, msg_dim))
-            try:
-                tsne = TSNE(n_components=2, early_exaggeration=12, perplexity=min(5, reshaped_data.shape[0]-1), init='pca', random_state=42)
-                embedded = tsne.fit_transform(reshaped_data); colormaps = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges']
-                for i in range(n_agents):
-                    cmap = get_cmap(colormaps[i % len(colormaps)])
-                    for t in range(max_step):
-                        self.ax_tsne.scatter(embedded[i*max_step+t, 0], embedded[i*max_step+t, 1], color=cmap(0.4 + 0.6*t/max_step), s=70, edgecolors='white', linewidth=0.3)
-            except: pass
-        else: self.ax_tsne.text(0.5, 0.5, "等待消息空间数据...", color="#64748b", ha='center', fontproperties="Microsoft YaHei", weight="bold")
+                from matplotlib import cm
+                cm_get = cm.get_cmap
+            except Exception:
+                cm_get = None
+
+            colors = []
+            for a, tt in zip(agent_idx, t_idx):
+                cmap_name = colormaps[int(a) % len(colormaps)]
+                cmap = cm_get(cmap_name) if cm_get else get_cmap(cmap_name)
+                frac = 0.4 + 0.6 * (float(tt) / max(1, max_step))
+                colors.append(cmap(frac))
+
+            self.ax_tsne.scatter(embedded[:, 0], embedded[:, 1], c=colors, s=55, edgecolors='white', linewidth=0.3)
+            if self.chart_font:
+                self.ax_tsne.set_title(f"Step {cache.get('best_ts', '')}", color="#475569", fontproperties=self.chart_font, weight="bold", fontsize=10)
+            else:
+                self.ax_tsne.set_title(f"Step {cache.get('best_ts', '')}", color="#475569", fontproperties="DejaVu Sans", weight="bold", fontsize=10)
+        else:
+            text = "t-SNE 计算中..." if getattr(self, "tsne_busy", False) else "等待消息空间数据..."
+            if self.chart_font:
+                self.ax_tsne.text(0.5, 0.5, text, color="#64748b", ha='center', fontproperties=self.chart_font, weight="bold", transform=self.ax_tsne.transAxes)
+            else:
+                self.ax_tsne.text(0.5, 0.5, text, color="#64748b", ha='center', fontproperties="DejaVu Sans", weight="bold", transform=self.ax_tsne.transAxes)
         self.ax_tsne.set_xticks([]); self.ax_tsne.set_yticks([])
         for spine in self.ax_tsne.spines.values(): spine.set_visible(False)
-        self.fig_tsne.tight_layout(); self.canvas_tsne.draw()
+        self.fig_tsne.tight_layout()
+        self.canvas_tsne.draw()
+        self.canvas_tsne.get_tk_widget().update_idletasks()
 
 if __name__ == "__main__":
     root = tk.Tk()
