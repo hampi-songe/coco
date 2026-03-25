@@ -99,13 +99,22 @@ class ParallelRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch for each un-terminated env
-            actions = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, bs=envs_not_terminated, test_mode=test_mode)
+            actions, messages, consensus = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, bs=envs_not_terminated, test_mode=test_mode)
             cpu_actions = actions.to("cpu").numpy()
 
             # Update the actions taken
             actions_chosen = {
-                "actions": actions.unsqueeze(1)
+                "actions": actions.unsqueeze(-1)
             }
+            if test_mode and getattr(self.args, "use_comm", False):
+                if messages is not None:
+                    actions_chosen["messages"] = messages[envs_not_terminated].detach()
+                if consensus is not None:
+                    # consensus has shape [total_batch * n_agents, dim]
+                    # we need to reshape it to [total_batch, n_agents, dim] first
+                    consensus_reshaped = consensus.view(self.batch_size, self.args.n_agents, -1)
+                    actions_chosen["consensus"] = consensus_reshaped[envs_not_terminated].detach()
+
             self.batch.update(actions_chosen, bs=envs_not_terminated, ts=self.t, mark_filled=False)
 
             # Send actions to each env

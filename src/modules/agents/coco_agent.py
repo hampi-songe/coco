@@ -148,7 +148,6 @@ class RNNAgent(nn.Module):
 
         #personal_msg = personal_msg.reshape(bs * self.n_agents, self.args.personal_msg_dim)
         personal_msg = personal_msg.reshape(bs, self.n_agents, -1).repeat(1, self.n_agents, 1).reshape(bs * self.n_agents *self.n_agents, -1)
-
         if test_mode:
             if self.args.comm_reduce:
                k = min(self.args.comm_gate, self.n_agents)
@@ -175,8 +174,7 @@ class RNNAgent(nn.Module):
 
         return personal_msg, dis, inf_dis
 
-    def attn_message_integration(self, personal_msg, hidden_state, bs):# [bs*n_agents, msg_dim*n_agents]
-
+    def attn_message_integration(self, personal_msg, hidden_state, bs): # [bs*n_agents, msg_dim*n_agents]
         integrated_msg = personal_msg.reshape(bs * self.n_agents * self.n_agents, -1)
         h_repeat = hidden_state.view(bs, self.n_agents, -1).repeat(1, self.n_agents, 1).view(bs * self.n_agents * self.n_agents,-1)
         value = self.v_net(torch.cat([h_repeat, integrated_msg], dim=-1)).view(bs, self.n_agents, self.n_agents, self.args.integrated_msg_dim)

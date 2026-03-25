@@ -44,6 +44,11 @@ class COCOLearner:
         self.log_stats_t = -self.args.learner_log_interval - 1
 
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
+        # 确保 batch 在正确的设备上
+        device = self.mac.agent.fc1.weight.device
+        if batch.device != device:
+            batch.to(device)
+
         # Get the relevant quantities
         rewards = batch["reward"][:, :-1]
         actions = batch["actions"][:, :-1]
@@ -65,7 +70,7 @@ class COCOLearner:
         self.mac.init_hidden(batch.batch_size)
 
         for t in range(batch.max_seq_length):
-            agent_outs, dis, inf_dis, personal_msg = self.mac.forward(batch, t=t)
+            agent_outs, dis, inf_dis, personal_msg, _ = self.mac.forward(batch, t=t)
             # print('dis',dis)
             # print('inf_dis',inf_dis)
             hidden_states.append(self.mac.hidden_states.view(self.args.batch_size, self.args.n_agents, -1))
@@ -108,7 +113,7 @@ class COCOLearner:
         self.target_mac.init_hidden(batch.batch_size)
 
         for t in range(batch.max_seq_length):
-            target_agent_outs, _, _, _ = self.target_mac.forward(batch, t=t)
+            target_agent_outs, _, _, _, _ = self.target_mac.forward(batch, t=t)
             target_hidden_states.append(self.target_mac.hidden_states.view(self.args.batch_size, self.args.n_agents, -1))
             target_mac_out.append(target_agent_outs)
 
@@ -166,7 +171,7 @@ class COCOLearner:
         contrastive_mask = contrastive_mask * (1 - th.diag_embed(th.ones(self.args.n_agents))).unsqueeze(0).to(contrastive_mask.device)
         # [879, 3, 3]
 
-        contrastive_loss = (contrastive_loss * contrastive_mask).sum() / contrastive_mask.sum()
+        contrastive_loss = (contrastive_loss * contrastive_mask.to(contrastive_loss.device)).sum() / contrastive_mask.to(contrastive_loss.device).sum()
         # print('contrastive_loss:', contrastive_loss)
 
         # Optimise
@@ -204,7 +209,7 @@ class COCOLearner:
             mixing_state_projection_z = F.softmax(mixing_state_projection / self.args.online_temp, dim=-1)
 
             # 加上alive-mask,[bs, max_seq_length, n_agents, CB_dim]
-            mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1) # [32, 61, 3, 4]
+            mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].to(mixing_state_projection_z.device).unsqueeze(-1) # [32, 61, 3, 4]
             # print('mixing_state_projection_z',mixing_state_projection_z.shape)
 
             # 潜在状态的标识：[bs, max_seq_length]
@@ -212,7 +217,7 @@ class COCOLearner:
             # print('latent_state-id',latent_state_id.shape)
 
             # 潜在状态的one-hot编码[bs, max_seq_length, CB_dim]
-            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.consensus_builder_dim).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
+            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.consensus_builder_dim).to(latent_state_id.device).scatter_(-1, latent_state_id.unsqueeze(-1), 1)
 
             # 将latent_state_id进行embedding：[bs, max_seq_length, n_agents, embedding_dim]
             latent_state_embedding = self.mac.embedding_net(latent_state_id)# [32, 61, 4]
@@ -247,7 +252,7 @@ class COCOLearner:
         masked_td_error = td_error * rl_mask
         rl_loss = (masked_td_error ** 2).sum() / rl_mask.sum()
 
-        bool_alive_mask = alive_mask.bool()
+        bool_alive_mask = alive_mask.bool().to(kl_list.device)
 
         masked_kl_loss = th.masked_select(kl_list[:, :-1], bool_alive_mask)
         masked_msg = th.masked_select(msg_list, bool_alive_mask.unsqueeze(dim=-1).repeat(1,1,1,self.args.personal_msg_dim))
@@ -296,11 +301,12 @@ class COCOLearner:
     def cuda(self):
         self.mac.cuda()
         self.target_mac.cuda()
+        device = self.mac.agent.fc1.weight.device
         if self.mixer is not None:
             self.mixer.cuda()
             self.target_mixer.cuda()
-        self.s_mu = th.zeros(1).cuda()
-        self.s_sigma = th.ones(1).cuda()
+        self.s_mu = th.zeros(1).to(device)
+        self.s_sigma = th.ones(1).to(device)
         # self.comm_gamma = self.args.comm_gamma.cuda()
 
     def save_models(self, path):

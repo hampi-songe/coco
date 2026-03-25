@@ -1,0 +1,111 @@
+{
+  "artifacts": [],
+  "command": "my_main",
+  "experiment": {
+    "base_dir": "e:\\bjkadshy\\coco\\src",
+    "dependencies": [
+      "munch==2.3.2",
+      "numpy==1.21.5",
+      "sacred==0.8.2",
+      "torch==1.12.0"
+    ],
+    "mainfile": "main.py",
+    "name": "pymarl",
+    "repositories": [
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      },
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      },
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      }
+    ],
+    "sources": [
+      [
+        "main.py",
+        "_sources\\main_a2b7505d1279c5ab5b2bbc549b539070.py"
+      ],
+      [
+        "run.py",
+        "_sources\\run_ccc2b20f99e7b91169df333cad2f4580.py"
+      ],
+      [
+        "utils\\logging.py",
+        "_sources\\logging_553c532b4e7cc23678f542a69aa7edab.py"
+      ]
+    ]
+  },
+  "fail_trace": [
+    "Traceback (most recent call last):\n",
+    "  File \"A:\\Conda\\envs\\smac\\lib\\site-packages\\sacred\\config\\captured_function.py\", line 42, in captured_function\n    result = wrapped(*args, **kwargs)\n",
+    "  File \"e:/bjkadshy/coco/src\\main.py\", line 34, in my_main\n    run(_run, config, _log)\n",
+    "  File \"e:\\bjkadshy\\coco\\src\\run.py\", line 53, in run\n    run_sequential(args=args, logger=logger)\n",
+    "  File \"e:\\bjkadshy\\coco\\src\\run.py\", line 117, in run_sequential\n    mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)\n",
+    "  File \"e:\\bjkadshy\\coco\\src\\controllers\\coco_controller.py\", line 28, in __init__\n    self.register_buffer(\"obs_center\", th.zeros(1, self.args.consensus_builder_dim))\n",
+    "AttributeError: 'BasicMAC' object has no attribute 'register_buffer'\n"
+  ],
+  "heartbeat": "2026-03-25T03:37:44.156593",
+  "host": {
+    "ENV": {},
+    "cpu": "Unknown",
+    "gpus": {
+      "driver_version": "560.94",
+      "gpus": [
+        {
+          "model": "NVIDIA GeForce RTX 3080 Ti",
+          "persistence_mode": false,
+          "total_memory": 12288
+        }
+      ]
+    },
+    "hostname": "DESKTOP-24PBS3L",
+    "os": [
+      "Windows",
+      "Windows-10-10.0.19041-SP0"
+    ],
+    "python_version": "3.7.16"
+  },
+  "meta": {
+    "command": "my_main",
+    "options": {
+      "--beat-interval": null,
+      "--capture": null,
+      "--comment": null,
+      "--debug": false,
+      "--enforce_clean": false,
+      "--file_storage": null,
+      "--force": false,
+      "--help": false,
+      "--loglevel": null,
+      "--mongo_db": null,
+      "--name": null,
+      "--pdb": false,
+      "--print-config": false,
+      "--priority": null,
+      "--queue": false,
+      "--s3": null,
+      "--sql": null,
+      "--tiny_db": null,
+      "--unobserved": false,
+      "COMMAND": null,
+      "UPDATE": [
+        "env_args.map_name=1o_2r_vs_4r"
+      ],
+      "help": false,
+      "with": true
+    }
+  },
+  "resources": [],
+  "result": null,
+  "start_time": "2026-03-25T03:37:43.928010",
+  "status": "FAILED",
+  "stop_time": "2026-03-25T03:37:44.159593"
+}

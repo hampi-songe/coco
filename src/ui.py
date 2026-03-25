@@ -8,6 +8,7 @@ import json
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from sklearn.manifold import TSNE
 from matplotlib.cm import get_cmap
+from PIL import Image, ImageTk
 import os
 import torch
 import warnings
@@ -36,7 +37,9 @@ TEXT_DIM = "#64748b"         # 灰度文字
 SHADOW_COLOR = "#ffffff"     # 浅灰色阴影
 PREFERRED_FONT_FILES = [
     "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/msyh.ttf",
     "C:/Windows/Fonts/simhei.ttf",
+    "C:/Windows/Fonts/arial.ttf",
 ]
 
 class TechBackground(tk.Canvas):
@@ -155,9 +158,16 @@ class AutonomousGamingUI:
             "1c3s5z": "1个巨像, 3个追猎者, 5个狂热者 vs 1个巨像, 3个追猎者, 5个狂热者。这是一个具有混合近战和远程单位的异构地图。",
             "MMM": "机枪兵,掠夺者,医疗运输机 vs 机枪兵,掠夺者,医疗运输机。经典的 Terran 生物组合场景。",
             "3s_vs_5z": "3个追猎者 vs 5个狂热者。专注于远程单位风筝近战单位的能力。",
-            "MMM2": "机枪兵,掠夺者,医疗运输机 vs 机枪兵,掠夺者,医疗运输机。MMM地图更大版本，拥有更多单位。"
+            "MMM2": "机枪兵,掠夺者,医疗运输机 vs 机枪兵,掠夺者,医疗运输机。MMM地图更大版本，拥有更多单位。",
+            "25m": "25个机枪兵 vs 25个机枪兵。一个大规模同质单位对抗地图，考验大规模作战的微操。",
+            "3r_vs_2b2m": "3个蟑螂 vs 2个雷神和2个掠夺者。考验小规模不对称战斗中的风筝与集火。",
+            "6b_vs_6m": "6个雷神 vs 6个机枪兵。考验重型单位对抗轻型单位时的散开与输出。"
         }
-        self.algorithms = ["COCO"]; self.platforms = ["SMAC"]
+        self.algorithms = ["COCO", "QMIX", "COLA", "TarMAC", "MAIC", "MASIA", "SMS", "NDQ"]; self.platforms = ["SMAC", "Predator-Prey", "Hallway"]
+
+        self.status_bar_var = tk.StringVar(value="系统就绪 | 正在监控 SMAC 平台...")
+        self.map_preview_win = None
+        self.map_preview_img = None
 
         self.setup_ui()
         self.load_data()
@@ -176,7 +186,7 @@ class AutonomousGamingUI:
 
         # --- 顶部标题栏 ---
         self.bg_canvas.add_card_shape(PAD, PAD, FULL_W, HEADER_H, r=15)
-        self.bg_canvas.add_canvas_text(1450/2, PAD + HEADER_H/2, "自主博弈操作系统 (COCO Platform)", self.font_title, ACCENT_COLOR, anchor="center")
+        self.bg_canvas.add_canvas_text(1450/2, PAD + HEADER_H/2, "自主博弈操作系统", self.font_title, ACCENT_COLOR, anchor="center")
 
         # --- 中间区域 (Y = 120) ---
         MIDDLE_Y = PAD + HEADER_H + PAD
@@ -196,26 +206,30 @@ class AutonomousGamingUI:
 
         self.map_var = tk.StringVar(value=list(self.maps.keys())[0]); self.map_var.trace("w", self.on_map_change)
         map_cb = ttk.Combobox(self.root, textvariable=self.map_var, values=list(self.maps.keys()), state="readonly")
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+155, window=map_cb, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+150, window=map_cb, anchor="nw", width=LEFT_W-40)
 
-        self.map_desc_text = tk.Text(self.root, height=4, font=self.font_main, bg="#f1f5f9", fg=TEXT_DIM, relief=tk.FLAT, padx=10, pady=10)
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+200, window=self.map_desc_text, anchor="nw", width=LEFT_W-40, height=110)
+        self.map_desc_text = tk.Text(self.root, height=2, font=self.font_main, bg="#f1f5f9", fg=TEXT_DIM, relief=tk.FLAT, padx=10, pady=10)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+185, window=self.map_desc_text, anchor="nw", width=LEFT_W-40, height=60)
         self.update_map_desc()
+
+        # 新增：地图预览图展示区域
+        self.map_preview_label = tk.Label(self.root, bg="#f1f5f9", relief=tk.FLAT)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+255, window=self.map_preview_label, anchor="nw", width=LEFT_W-40, height=110)
 
         self.algo_var = tk.StringVar(value=self.algorithms[0])
         algo_cb = ttk.Combobox(self.root, textvariable=self.algo_var, values=self.algorithms, state="readonly")
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+355, window=algo_cb, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+405, window=algo_cb, anchor="nw", width=LEFT_W-40)
 
         self.run_btn = tk.Button(self.root, text="▶ 开始运行实验", font=self.font_bold, bg=ACCENT_COLOR, fg="white", activebackground=ACCENT_GLOW, relief=tk.FLAT, pady=10, command=self.toggle_experiment)
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+465, window=self.run_btn, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+475, window=self.run_btn, anchor="nw", width=LEFT_W-40)
 
         self.timestep_label_var = tk.StringVar(value="当前步数: 0 / 2,050,000")
         ts_label = tk.Label(self.root, textvariable=self.timestep_label_var, font=self.font_bold, fg=ACCENT_COLOR, bg="#f1f5f9")
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+515, window=ts_label, anchor="nw")
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+520, window=ts_label, anchor="nw")
 
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=2050000)
-        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+545, window=self.progress_bar, anchor="nw", width=LEFT_W-40)
+        self.bg_canvas.create_window(PAD+20, MIDDLE_Y+540, window=self.progress_bar, anchor="nw", width=LEFT_W-40)
 
         # 2. 右侧图表区 (双正方形并排)
         RIGHT_X = PAD + LEFT_W + PAD
@@ -239,7 +253,34 @@ class AutonomousGamingUI:
         # t-SNE 可视化
         TSNE_X = RIGHT_X + SQUARE_SIZE + PAD
         self.bg_canvas.add_card_shape(TSNE_X, MIDDLE_Y, SQUARE_SIZE, SQUARE_SIZE)
-        self.bg_canvas.add_canvas_text(TSNE_X+20, MIDDLE_Y+15, "🔮 消息空间可视化 (t-SNE)", self.font_main, ACCENT_COLOR)
+        
+        # t-SNE 模式选择条 (消息 vs 共识)
+        self.tsne_mode_var = tk.StringVar(value="消息")
+        self.tsne_mode_frame = tk.Frame(self.root, bg="#f1f5f9", padx=2, pady=2) # 浅灰色背景
+        self.bg_canvas.create_window(TSNE_X+20, MIDDLE_Y+10, window=self.tsne_mode_frame, anchor="nw", width=SQUARE_SIZE-40)
+        
+        rb_style = {
+            "font": self.font_bold, 
+            "bg": "#f1f5f9", 
+            "fg": TEXT_DIM, 
+            "selectcolor": "white", 
+            "activebackground": "#e2e8f0", 
+            "indicatoron": 0, # 改为按钮样式
+            "relief": tk.FLAT,
+            "padx": 15,
+            "pady": 5,
+            "width": 18
+        }
+        
+        # 消息可视化按钮
+        self.rb_msg = tk.Radiobutton(self.tsne_mode_frame, text="🔮 消息空间", variable=self.tsne_mode_var, value="消息", 
+                                    command=self.on_tsne_mode_change, **rb_style)
+        self.rb_msg.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        
+        # 共识可视化按钮
+        self.rb_con = tk.Radiobutton(self.tsne_mode_frame, text="🤝 共识空间", variable=self.tsne_mode_var, value="共识", 
+                                    command=self.on_tsne_mode_change, **rb_style)
+        self.rb_con.pack(side=tk.LEFT, expand=True, fill=tk.X)
         
         self.fig_tsne = Figure(figsize=(5, 5), dpi=100)
         self.fig_tsne.patch.set_facecolor("#ffffff")
@@ -250,6 +291,9 @@ class AutonomousGamingUI:
         self.tsne_widget = self.canvas_tsne.get_tk_widget()
         self.tsne_widget.config(bg="white")
         self.bg_canvas.create_window(TSNE_X+20, MIDDLE_Y+50, window=self.tsne_widget, anchor="nw", width=SQUARE_SIZE-40, height=SQUARE_SIZE-70)
+
+        # 初始化样式 (必须在 ax_tsne 初始化后调用)
+        self.on_tsne_mode_change()
 
         # --- 底部日志区域 (Y = 120 + 550 + 20 = 690) ---
         LOG_Y = MIDDLE_Y + MIDDLE_H + PAD
@@ -263,8 +307,48 @@ class AutonomousGamingUI:
         self.status_bar = tk.Label(self.root, text="系统就绪 | 正在监控 SMAC 平台...", bd=0, anchor=tk.W, bg="#e2e8f0", fg=TEXT_DIM, font=("Microsoft YaHei", 9), padx=20, pady=5)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
+        # 初始化时触发一次预览
+        self.root.after(500, self.update_map_preview)
+
     def on_map_change(self, *args):
-        self.update_map_desc(); self.load_data(); self.update_plots()
+        self.update_map_desc()
+        self.load_data()
+        self.update_plots()
+        self.update_map_preview()
+
+    def update_map_preview(self):
+        map_name = self.map_var.get()
+        img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "map_pictures")
+        img_path = os.path.join(img_dir, f"{map_name}.png")
+        
+        if not os.path.exists(img_path):
+            self.map_preview_label.config(image="", text="暂无地图预览图")
+            return
+
+        try:
+            # 加载并缩放图片以适应左侧面板宽度
+            img = Image.open(img_path)
+            # 缩放以适应 340x140 的展示区域 (兼容旧版 Pillow)
+            resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
+            img.thumbnail((340, 140), resample_filter)
+            self.map_preview_img = ImageTk.PhotoImage(img)
+            self.map_preview_label.config(image=self.map_preview_img, text="")
+            
+        except Exception as e:
+            print(f"--- 加载地图图片失败: {e} ---")
+            self.map_preview_label.config(image="", text="图片加载失败")
+
+    def on_tsne_mode_change(self):
+        """当可视化模式改变时更新按钮样式并重绘图表"""
+        mode = self.tsne_mode_var.get()
+        if mode == "消息":
+            self.rb_msg.config(bg="white", fg=ACCENT_COLOR)
+            self.rb_con.config(bg="#f1f5f9", fg=TEXT_DIM)
+        else:
+            self.rb_msg.config(bg="#f1f5f9", fg=TEXT_DIM)
+            self.rb_con.config(bg="white", fg=ACCENT_COLOR)
+        
+        self.plot_tsne()
 
     def update_plots(self):
         self.plot_curve()
@@ -281,17 +365,30 @@ class AutonomousGamingUI:
             self.tsne_requested_step = target_step
             return
 
-        self.load_data()
+        # 优化：不要在 UI 线程调用耗时的 load_data()
         msg_dir = getattr(self, "latest_msg_path", None)
         token = getattr(self, "unique_token", None)
-        if not msg_dir:
-            return
 
         self.tsne_busy = True
         self.tsne_requested_step = None
         self.plot_tsne()
-        thread = threading.Thread(target=self._compute_tsne_cache, args=(msg_dir, token, target_step), daemon=True)
+        # 将 load_data 的逻辑移入后台线程
+        thread = threading.Thread(target=self._compute_tsne_cache_with_load, args=(token, target_step), daemon=True)
         thread.start()
+
+    def _compute_tsne_cache_with_load(self, token, target_step):
+        try:
+            # 在后台线程刷新路径
+            self.load_data()
+            msg_dir = getattr(self, "latest_msg_path", None)
+            if not msg_dir:
+                self.root.after(0, self._finish_tsne_update, None, None)
+                return
+            
+            self._compute_tsne_cache(msg_dir, token, target_step)
+        except Exception as e:
+            print(f"--- 后台 t-SNE 预加载失败: {e} ---")
+            self.root.after(0, self._finish_tsne_update, None, None)
 
     def _compute_tsne_cache(self, msg_dir, token, target_step):
         try:
@@ -320,45 +417,76 @@ class AutonomousGamingUI:
                 self.root.after(0, self._finish_tsne_update, None, None)
                 return
 
-            msgs = torch.load(best_path, map_location="cpu")
-            if not hasattr(msgs, "shape") or len(msgs.shape) != 4:
-                self.root.after(0, self._finish_tsne_update, None, None)
-                return
-
-            steps, n_agents, _, msg_dim = msgs.shape
-            data = msgs.mean(dim=2).permute(1, 0, 2).numpy()
-            n_agents, max_step, msg_dim = data.shape
-            reshaped_data = np.reshape(data.transpose(1, 0, 2), (n_agents * max_step, msg_dim))
-
-            max_points = 1600
-            if reshaped_data.shape[0] > max_points:
-                idx = np.linspace(0, reshaped_data.shape[0] - 1, num=max_points).astype(int)
-                reshaped_data_use = reshaped_data[idx]
-                agent_idx = idx // max_step
-                t_idx = idx % max_step
+            data_loaded = torch.load(best_path, map_location="cpu")
+            
+            # 处理新旧格式数据
+            if isinstance(data_loaded, dict):
+                msgs_tensor = data_loaded.get("messages")
+                consensus_tensor = data_loaded.get("consensus")
             else:
-                reshaped_data_use = reshaped_data
-                agent_idx = np.arange(reshaped_data.shape[0]) // max_step
-                t_idx = np.arange(reshaped_data.shape[0]) % max_step
+                msgs_tensor = data_loaded
+                consensus_tensor = None
 
-            perp = min(30, max(5, (reshaped_data_use.shape[0] - 1) // 5))
-            tsne = TSNE(
-                n_components=2,
-                early_exaggeration=12,
-                perplexity=min(perp, reshaped_data_use.shape[0] - 1),
-                init="pca",
-                random_state=42,
-            )
-            embedded = tsne.fit_transform(reshaped_data_use)
-            payload = {
-                "embedded": embedded,
-                "agent_idx": agent_idx,
-                "t_idx": t_idx,
-                "n_agents": int(n_agents),
-                "max_step": int(max_step),
-                "best_ts": int(best_ts) if best_ts is not None else None,
-                "token": token,
-            }
+            payload = {"best_ts": int(best_ts)}
+
+            # 1. 计算消息 t-SNE
+            if msgs_tensor is not None and hasattr(msgs_tensor, "shape") and len(msgs_tensor.shape) == 4:
+                steps, n_agents, _, msg_dim = msgs_tensor.shape
+                data = msgs_tensor.mean(dim=2).permute(1, 0, 2).numpy()
+                n_agents, max_step, msg_dim = data.shape
+                reshaped_data = np.reshape(data.transpose(1, 0, 2), (n_agents * max_step, msg_dim))
+
+                max_points = 1600
+                if reshaped_data.shape[0] > max_points:
+                    idx = np.linspace(0, reshaped_data.shape[0] - 1, num=max_points).astype(int)
+                    reshaped_data_use = reshaped_data[idx]
+                    t_idx = idx // n_agents
+                    agent_idx = idx % n_agents
+                else:
+                    reshaped_data_use = reshaped_data
+                    t_idx = np.arange(reshaped_data.shape[0]) // n_agents
+                    agent_idx = np.arange(reshaped_data.shape[0]) % n_agents
+
+                perp = min(30, max(5, (reshaped_data_use.shape[0] - 1) // 5))
+                tsne = TSNE(n_components=2, early_exaggeration=12, perplexity=min(perp, reshaped_data_use.shape[0] - 1), init="pca", random_state=42)
+                embedded = tsne.fit_transform(reshaped_data_use)
+                payload["msg"] = {
+                    "embedded": embedded,
+                    "agent_idx": agent_idx,
+                    "t_idx": t_idx,
+                    "n_agents": int(n_agents),
+                    "max_step": int(max_step)
+                }
+
+            # 2. 计算共识 t-SNE
+            if consensus_tensor is not None and hasattr(consensus_tensor, "shape") and len(consensus_tensor.shape) == 3:
+                # consensus_tensor shape: [steps, n_agents, consensus_dim=4]
+                data = consensus_tensor.permute(1, 0, 2).numpy() # [n_agents, steps, dim]
+                n_agents, max_step, con_dim = data.shape
+                reshaped_data = np.reshape(data.transpose(1, 0, 2), (n_agents * max_step, con_dim))
+
+                max_points = 1600
+                if reshaped_data.shape[0] > max_points:
+                    idx = np.linspace(0, reshaped_data.shape[0] - 1, num=max_points).astype(int)
+                    reshaped_data_use = reshaped_data[idx]
+                    t_idx = idx // n_agents
+                    agent_idx = idx % n_agents
+                else:
+                    reshaped_data_use = reshaped_data
+                    t_idx = np.arange(reshaped_data.shape[0]) // n_agents
+                    agent_idx = np.arange(reshaped_data.shape[0]) % n_agents
+
+                perp = min(30, max(5, (reshaped_data_use.shape[0] - 1) // 5))
+                tsne = TSNE(n_components=2, early_exaggeration=12, perplexity=min(perp, reshaped_data_use.shape[0] - 1), init="pca", random_state=42)
+                embedded = tsne.fit_transform(reshaped_data_use)
+                payload["con"] = {
+                    "embedded": embedded,
+                    "agent_idx": agent_idx,
+                    "t_idx": t_idx,
+                    "n_agents": int(n_agents),
+                    "max_step": int(max_step)
+                }
+
             self.root.after(0, self._finish_tsne_update, payload, target_step)
         except Exception:
             self.root.after(0, self._finish_tsne_update, None, None)
@@ -479,6 +607,10 @@ class AutonomousGamingUI:
         curve_dirty = False
         tsne_step = None
         
+        # 优化：快速预判。如果行中没有关键词，跳过昂贵的正则解析
+        if not any(k in line for k in ["Token", "token", "Run ID", "test_battle", "t_env"]):
+            return curve_dirty, tsne_step
+
         # 1. 实时解析 Unique Token (用于定位消息目录)
         token_match = re.search(r"(?:'unique_token':\s*'([^']+)'|Unique Token:\s*([^\s]+))", line)
         if token_match:
@@ -499,15 +631,22 @@ class AutonomousGamingUI:
             if "test_battle_won_mean" not in self.data_info:
                 self.data_info["test_battle_won_mean"] = []
                 self.data_info["test_battle_won_mean_T"] = []
-            last_ts = self.data_info["test_battle_won_mean_T"][-1] if self.data_info["test_battle_won_mean_T"] else None
-            if last_ts != self.current_timestep:
-                self.data_info["test_battle_won_mean"].append(win_val)
-                self.data_info["test_battle_won_mean_T"].append(self.current_timestep)
-            print(f"--- 实时抓取胜率: {win_val} (Step: {self.current_timestep}) ---")
             
-            # 测试结束，立即刷新胜率，并异步计算最新 episode 的 t-SNE
+            # 改进：如果这是第一个点，或者步数较小，强制设为 0
+            # 解决“还没训练就标在 10000 步”的问题
+            plot_step = self.current_timestep
+            if len(self.data_info["test_battle_won_mean"]) == 0 or self.current_timestep < 15000:
+                plot_step = 0
+            
+            # 避免重复点
+            last_ts = self.data_info["test_battle_won_mean_T"][-1] if self.data_info["test_battle_won_mean_T"] else None
+            if last_ts != plot_step:
+                self.data_info["test_battle_won_mean"].append(win_val)
+                self.data_info["test_battle_won_mean_T"].append(plot_step)
+            print(f"--- 实时抓取胜率: {win_val} (Step: {self.current_timestep}, Plot: {plot_step}) ---")
+            
             curve_dirty = True
-            tsne_step = self.current_timestep
+            tsne_step = self.current_timestep # 测试结束，触发 t-SNE
 
         # 4. 实时解析时间步
         ts_match = re.search(r"t_env:\s*(\d+)", line)
@@ -696,25 +835,27 @@ class AutonomousGamingUI:
                     break
             
         if plot_done:
+            # 明确设置标签字体
             if self.chart_font:
                 self.ax_curve.set_xlabel("时间步", color="#475569", fontproperties=self.chart_font, weight="bold")
                 self.ax_curve.set_ylabel("平均测试胜率", color="#475569", fontproperties=self.chart_font, weight="bold")
             else:
-                self.ax_curve.set_xlabel("时间步", color="#475569", fontproperties="DejaVu Sans", weight="bold")
-                self.ax_curve.set_ylabel("平均测试胜率", color="#475569", fontproperties="DejaVu Sans", weight="bold")
+                self.ax_curve.set_xlabel("时间步", color="#475569", weight="bold")
+                self.ax_curve.set_ylabel("平均测试胜率", color="#475569", weight="bold")
+            
             self.ax_curve.grid(True, linestyle='-', alpha=0.1, color="#cbd5e1")
             self.ax_curve.tick_params(colors="#475569", labelsize=9)
             
-            # 动态设置 X 轴范围，防止早期数据太挤
             current_max_x = max(x) if x else 0
             self.ax_curve.set_xlim(0, max(current_max_x * 1.2, 100000, min(self.max_timesteps, current_max_x + 50000)))
             self.ax_curve.set_ylim(-0.05, 1.1)
             for spine in self.ax_curve.spines.values(): spine.set_color("#e2e8f0")
-        else: 
+        else:
+            text = "等待实验数据..."
             if self.chart_font:
-                self.ax_curve.text(0.5, 0.5, "等待实验数据...", color="#64748b", ha='center', fontproperties=self.chart_font, weight="bold", transform=self.ax_curve.transAxes)
+                self.ax_curve.text(0.5, 0.5, text, color="#64748b", ha='center', fontproperties=self.chart_font, weight="bold", transform=self.ax_curve.transAxes)
             else:
-                self.ax_curve.text(0.5, 0.5, "等待实验数据...", color="#64748b", ha='center', fontproperties="DejaVu Sans", weight="bold", transform=self.ax_curve.transAxes)
+                self.ax_curve.text(0.5, 0.5, text, color="#64748b", ha='center', weight="bold", transform=self.ax_curve.transAxes)
         
         self.fig_curve.tight_layout()
         self.canvas_curve.draw()
@@ -725,14 +866,19 @@ class AutonomousGamingUI:
         self.ax_tsne.clear()
         self.ax_tsne.set_facecolor("#f8fafc")
 
+        mode = self.tsne_mode_var.get() # "消息" 或 "共识"
+        mode_key = "msg" if mode == "消息" else "con"
+        
         cache = getattr(self, "tsne_cache", None)
-        if cache and "embedded" in cache:
-            embedded = cache["embedded"]
-            agent_idx = cache["agent_idx"]
-            t_idx = cache["t_idx"]
-            n_agents = int(cache["n_agents"])
-            max_step = int(cache["max_step"])
-            colormaps = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges']
+        if cache and mode_key in cache:
+            data_payload = cache[mode_key]
+            embedded = data_payload["embedded"]
+            agent_idx = data_payload["agent_idx"]
+            t_idx = data_payload["t_idx"]
+            n_agents = int(data_payload["n_agents"])
+            max_step = int(data_payload["max_step"])
+            
+            colormaps = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrBr', 'PuRd', 'GnBu']
             try:
                 from matplotlib import cm
                 cm_get = cm.get_cmap
@@ -743,20 +889,24 @@ class AutonomousGamingUI:
             for a, tt in zip(agent_idx, t_idx):
                 cmap_name = colormaps[int(a) % len(colormaps)]
                 cmap = cm_get(cmap_name) if cm_get else get_cmap(cmap_name)
+                # 颜色深浅随时间步变化
                 frac = 0.4 + 0.6 * (float(tt) / max(1, max_step))
                 colors.append(cmap(frac))
 
-            self.ax_tsne.scatter(embedded[:, 0], embedded[:, 1], c=colors, s=55, edgecolors='white', linewidth=0.3)
+            self.ax_tsne.scatter(embedded[:, 0], embedded[:, 1], c=colors, s=55, edgecolors='white', linewidth=0.3, alpha=0.8)
+            
+            title_text = f"Step {cache.get('best_ts', '')} ({mode})"
             if self.chart_font:
-                self.ax_tsne.set_title(f"Step {cache.get('best_ts', '')}", color="#475569", fontproperties=self.chart_font, weight="bold", fontsize=10)
+                self.ax_tsne.set_title(title_text, color="#475569", fontproperties=self.chart_font, weight="bold", fontsize=10)
             else:
-                self.ax_tsne.set_title(f"Step {cache.get('best_ts', '')}", color="#475569", fontproperties="DejaVu Sans", weight="bold", fontsize=10)
+                self.ax_tsne.set_title(title_text, color="#475569", fontproperties="DejaVu Sans", weight="bold", fontsize=10)
         else:
-            text = "t-SNE 计算中..." if getattr(self, "tsne_busy", False) else "等待消息空间数据..."
+            text = "t-SNE 计算中..." if getattr(self, "tsne_busy", False) else f"等待{mode}空间数据..."
             if self.chart_font:
                 self.ax_tsne.text(0.5, 0.5, text, color="#64748b", ha='center', fontproperties=self.chart_font, weight="bold", transform=self.ax_tsne.transAxes)
             else:
                 self.ax_tsne.text(0.5, 0.5, text, color="#64748b", ha='center', fontproperties="DejaVu Sans", weight="bold", transform=self.ax_tsne.transAxes)
+        
         self.ax_tsne.set_xticks([]); self.ax_tsne.set_yticks([])
         for spine in self.ax_tsne.spines.values(): spine.set_visible(False)
         self.fig_tsne.tight_layout()

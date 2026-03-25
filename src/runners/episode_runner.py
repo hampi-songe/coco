@@ -65,7 +65,7 @@ class EpisodeRunner:
 
             # Pass the entire batch of experiences up till now to the agents
             # Receive the actions for each agent at this timestep in a batch of size 1
-            actions, messages = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
+            actions, messages, consensus = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
 
             reward, terminated, env_info = self.env.step(actions[0])
             episode_return += reward
@@ -75,8 +75,11 @@ class EpisodeRunner:
                 "reward": [(reward,)],
                 "terminated": [(terminated != env_info.get("episode_limit", False),)],
             }
-            if test_mode and messages is not None:
-                post_transition_data["messages"] = messages.detach().cpu()
+            if test_mode and getattr(self.args, "use_comm", False):
+                if messages is not None:
+                    post_transition_data["messages"] = messages.detach()
+                if consensus is not None:
+                    post_transition_data["consensus"] = consensus.detach().reshape(self.batch_size, self.args.n_agents, -1)
 
             self.batch.update(post_transition_data, ts=self.t)
 
@@ -91,10 +94,13 @@ class EpisodeRunner:
         self.batch.update(last_data, ts=self.t)
 
         # Select actions in the last stored state
-        actions, messages = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
+        actions, messages, consensus = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
         last_post_data = {"actions": actions}
-        if test_mode and messages is not None:
-            last_post_data["messages"] = messages.detach().cpu()
+        if test_mode and getattr(self.args, "use_comm", False):
+            if messages is not None:
+                last_post_data["messages"] = messages.detach()
+            if consensus is not None:
+                last_post_data["consensus"] = consensus.detach().reshape(self.batch_size, self.args.n_agents, -1)
         self.batch.update(last_post_data, ts=self.t)
 
         cur_stats = self.test_stats if test_mode else self.train_stats

@@ -1,0 +1,102 @@
+{
+  "artifacts": [],
+  "command": "my_main",
+  "experiment": {
+    "base_dir": "e:\\bjkadshy\\coco\\src",
+    "dependencies": [
+      "munch==2.3.2",
+      "numpy==1.21.5",
+      "sacred==0.8.2",
+      "torch==1.12.0"
+    ],
+    "mainfile": "main.py",
+    "name": "pymarl",
+    "repositories": [
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      },
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      },
+      {
+        "commit": "1e69657d088a1189e7fc5147efa7782fdfd27552",
+        "dirty": true,
+        "url": "https://github.com/hampi-songe/coco.git"
+      }
+    ],
+    "sources": [
+      [
+        "main.py",
+        "_sources\\main_a2b7505d1279c5ab5b2bbc549b539070.py"
+      ],
+      [
+        "run.py",
+        "_sources\\run_76554f09831774c87da9de88040ab7e9.py"
+      ],
+      [
+        "utils\\logging.py",
+        "_sources\\logging_553c532b4e7cc23678f542a69aa7edab.py"
+      ]
+    ]
+  },
+  "heartbeat": "2026-03-25T03:48:39.520686",
+  "host": {
+    "ENV": {},
+    "cpu": "Unknown",
+    "gpus": {
+      "driver_version": "560.94",
+      "gpus": [
+        {
+          "model": "NVIDIA GeForce RTX 3080 Ti",
+          "persistence_mode": false,
+          "total_memory": 12288
+        }
+      ]
+    },
+    "hostname": "DESKTOP-24PBS3L",
+    "os": [
+      "Windows",
+      "Windows-10-10.0.19041-SP0"
+    ],
+    "python_version": "3.7.16"
+  },
+  "meta": {
+    "command": "my_main",
+    "options": {
+      "--beat-interval": null,
+      "--capture": null,
+      "--comment": null,
+      "--debug": false,
+      "--enforce_clean": false,
+      "--file_storage": null,
+      "--force": false,
+      "--help": false,
+      "--loglevel": null,
+      "--mongo_db": null,
+      "--name": null,
+      "--pdb": false,
+      "--print-config": false,
+      "--priority": null,
+      "--queue": false,
+      "--s3": null,
+      "--sql": null,
+      "--tiny_db": null,
+      "--unobserved": false,
+      "COMMAND": null,
+      "UPDATE": [
+        "env_args.map_name=1o_2r_vs_4r"
+      ],
+      "help": false,
+      "with": true
+    }
+  },
+  "resources": [],
+  "result": null,
+  "start_time": "2026-03-25T03:25:55.261549",
+  "status": "INTERRUPTED",
+  "stop_time": "2026-03-25T03:48:39.523686"
+}
